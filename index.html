@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verify — Mobile Auth POC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    /* ─── Design tokens ────────────────────────────────────────────── */
+    :root {
+      --bg:        #0D0F14;
+      --surface:   #161A23;
+      --border:    #252B38;
+      --accent:    #4F6EF7;
+      --accent-hi: #7B93FF;
+      --success:   #22C55E;
+      --error:     #EF4444;
+      --warn:      #F59E0B;
+      --text:      #E8ECF4;
+      --muted:     #6B7588;
+      --label:     #9AA3B5;
+
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+
+      --font-display: 'DM Serif Display', Georgia, serif;
+      --font-body:    'Inter', system-ui, sans-serif;
+
+      --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ─── Reset ────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1rem;
+      /* Signature element: subtle animated mesh gradient */
+      background-image:
+        radial-gradient(ellipse 60% 40% at 20% 0%, rgba(79,110,247,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 50% at 80% 100%, rgba(122,50,180,0.08) 0%, transparent 60%);
+    }
+
+    /* ─── Card ─────────────────────────────────────────────────────── */
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 2.5rem 2rem;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 2rem;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: var(--accent);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .logo-name {
+      font-family: var(--font-display);
+      font-size: 1.3rem;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    /* ─── Step heading ─────────────────────────────────────────────── */
+    .step-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent-hi);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.75rem;
+      font-weight: 400;
+      line-height: 1.2;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+    }
+    .subtitle {
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 1.75rem;
+    }
+
+    /* ─── Form elements ────────────────────────────────────────────── */
+    .field { margin-bottom: 1rem; }
+    label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--label);
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.02em;
+    }
+
+    .input-group {
+      display: flex;
+      align-items: center;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: border-color var(--transition);
+    }
+    .input-group:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79,110,247,0.15);
+    }
+    .prefix {
+      padding: 0 0.75rem;
+      font-size: 0.95rem;
+      color: var(--muted);
+      border-right: 1px solid var(--border);
+      line-height: 2.85rem;
+      white-space: nowrap;
+      user-select: none;
+    }
+    input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 1rem;
+      padding: 0.7rem 0.9rem;
+      width: 100%;
+    }
+    input::placeholder { color: var(--muted); }
+    input[type="tel"] { letter-spacing: 0.05em; }
+
+    /* OTP digit row */
+    .otp-row {
+      display: flex;
+      gap: 8px;
+    }
+    .otp-digit {
+      flex: 1;
+      height: 52px;
+      text-align: center;
+      font-size: 1.4rem;
+      font-weight: 600;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .otp-digit:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79,110,247,0.15);
+    }
+    .otp-digit.filled { border-color: var(--accent); }
+    .otp-digit.error-digit { border-color: var(--error) !important; animation: shake 0.3s; }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-4px); }
+      40%, 80% { transform: translateX(4px); }
+    }
+
+    /* ─── Button ───────────────────────────────────────────────────── */
+    .btn {
+      width: 100%;
+      padding: 0.85rem 1.5rem;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 1.25rem;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hi);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(79,110,247,0.35);
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+    }
+    .btn-ghost:hover { color: var(--text); }
+
+    /* ─── Feedback ─────────────────────────────────────────────────── */
+    .feedback {
+      display: none;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+      line-height: 1.4;
+    }
+    .feedback.error   { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); color: #FCA5A5; display: block; }
+    .feedback.success { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); color: #86EFAC; display: block; }
+    .feedback.info    { background: rgba(79,110,247,0.1); border: 1px solid rgba(79,110,247,0.25); color: #93A8FF; display: block; }
+
+    /* ─── Channel badges ───────────────────────────────────────────── */
+    .channels {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 1.5rem;
+    }
+    .badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      color: var(--label);
+    }
+    .badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+    }
+    .badge.sms   .dot { background: var(--accent); }
+    .badge.wa    .dot { background: var(--success); }
+
+    /* ─── Countdown ────────────────────────────────────────────────── */
+    .resend-row {
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 0.75rem;
+    }
+    .resend-row button {
+      background: none; border: none;
+      color: var(--accent-hi);
+      font-family: var(--font-body);
+      font-size: 0.82rem;
+      cursor: pointer;
+      padding: 0;
+    }
+    .resend-row button:disabled { color: var(--muted); cursor: default; }
+
+    /* ─── Dashboard ────────────────────────────────────────────────── */
+    .profile-hero {
+      text-align: center;
+      margin-bottom: 1.75rem;
+    }
+    .avatar {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, var(--accent) 0%, #7A32B4 100%);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 1.8rem;
+      color: #fff;
+      margin: 0 auto 1rem;
+    }
+    .profile-name {
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      margin-bottom: 0.25rem;
+    }
+    .profile-mobile {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 1.5rem;
+    }
+    .stat {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.9rem 1rem;
+    }
+    .stat-label {
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+    .stat-value {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* ─── Spinner ──────────────────────────────────────────────────── */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Screen transitions ───────────────────────────────────────── */
+    .screen { display: none; animation: fadeIn 0.25s ease; }
+    .screen.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    /* ─── Divider ──────────────────────────────────────────────────── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 1.25rem 0;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <!-- Logo -->
+  <div class="logo">
+    <div class="logo-icon">🔐</div>
+    <span class="logo-name">Verify</span>
+  </div>
+
+  <!-- ── Screen 1: Enter Mobile ───────────────────────────────────── -->
+  <div class="screen active" id="screen-mobile">
+    <div class="step-label">Step 1 of 3</div>
+    <h1>Enter your number</h1>
+    <p class="subtitle">We'll send a 6-digit code via SMS and WhatsApp simultaneously.</p>
+
+    <div class="channels">
+      <span class="badge sms"><span class="dot"></span>SMS</span>
+      <span class="badge wa"><span class="dot"></span>WhatsApp</span>
+    </div>
+
+    <div id="feedback-mobile" class="feedback"></div>
+
+    <div class="field">
+      <label for="mobile-input">Mobile Number</label>
+      <div class="input-group">
+        <span class="prefix">🇮🇳 +91</span>
+        <input
+          type="tel"
+          id="mobile-input"
+          placeholder="98765 43210"
+          maxlength="10"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          autocomplete="tel-national"
+        />
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-send-otp" onclick="handleSendOtp()">
+      Send OTP
+    </button>
+  </div>
+
+  <!-- ── Screen 2: Enter OTP ──────────────────────────────────────── -->
+  <div class="screen" id="screen-otp">
+    <div class="step-label">Step 2 of 3</div>
+    <h1>Check your phone</h1>
+    <p class="subtitle" id="otp-subtitle">Code sent to +91 XXXXXXXXXX via SMS &amp; WhatsApp.</p>
+
+    <div id="feedback-otp" class="feedback"></div>
+
+    <div class="field">
+      <label>6-digit OTP</label>
+      <div class="otp-row" id="otp-row">
+        <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="one-time-code" />
+        <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+        <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+        <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+        <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+        <input class="otp-digit" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-verify-otp" onclick="handleVerifyOtp()">
+      Verify OTP
+    </button>
+
+    <div class="resend-row" id="resend-row">
+      <span id="resend-countdown">Resend in <strong id="countdown-val">60</strong>s</span>
+      <button id="btn-resend" onclick="handleResend()" disabled style="display:none">Resend OTP</button>
+    </div>
+
+    <button class="btn btn-ghost" onclick="goBack('screen-mobile')">← Change number</button>
+  </div>
+
+  <!-- ── Screen 3a: Register ──────────────────────────────────────── -->
+  <div class="screen" id="screen-register">
+    <div class="step-label">Step 3 of 3</div>
+    <h1>Create your account</h1>
+    <p class="subtitle">Just the basics — you can always update this later.</p>
+
+    <div id="feedback-register" class="feedback"></div>
+
+    <div class="field">
+      <label for="reg-name">Full Name <span style="color:var(--error)">*</span></label>
+      <div class="input-group">
+        <input type="text" id="reg-name" placeholder="Priya Sharma" autocomplete="name" />
+      </div>
+    </div>
+    <div class="field">
+      <label for="reg-email">Email Address</label>
+      <div class="input-group">
+        <input type="email" id="reg-email" placeholder="priya@example.com" autocomplete="email" />
+      </div>
+    </div>
+    <div class="field">
+      <label for="reg-city">City</label>
+      <div class="input-group">
+        <input type="text" id="reg-city" placeholder="Mumbai" autocomplete="address-level2" />
+      </div>
+    </div>
+    <div class="field">
+      <label for="reg-dob">Date of Birth</label>
+      <div class="input-group">
+        <input type="date" id="reg-dob" style="padding: 0.7rem 0.9rem;" />
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-register" onclick="handleRegister()">
+      Create Account
+    </button>
+  </div>
+
+  <!-- ── Screen 3b: Dashboard ─────────────────────────────────────── -->
+  <div class="screen" id="screen-dashboard">
+    <div class="profile-hero">
+      <div class="avatar" id="dash-avatar">?</div>
+      <div class="profile-name" id="dash-name">—</div>
+      <div class="profile-mobile" id="dash-mobile">—</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="stat-label">Email</div>
+        <div class="stat-value" id="dash-email">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">City</div>
+        <div class="stat-value" id="dash-city">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Member Since</div>
+        <div class="stat-value" id="dash-since">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Total Logins</div>
+        <div class="stat-value" id="dash-logins">—</div>
+      </div>
+    </div>
+
+    <button class="btn btn-ghost" style="margin-top:1.5rem" onclick="resetAll()">← Sign out</button>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+const API = "";  // same origin
+let currentMobile = "";
+let countdownTimer = null;
+
+// ─── Screen management ───────────────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+function goBack(screen) {
+  clearFeedback();
+  showScreen(screen);
+}
+
+function clearFeedback() {
+  document.querySelectorAll(".feedback").forEach(el => {
+    el.className = "feedback";
+    el.textContent = "";
+  });
+}
+
+function showFeedback(id, type, message) {
+  const el = document.getElementById(id);
+  el.className = `feedback ${type}`;
+  el.textContent = message;
+}
+
+// ─── Loading state ───────────────────────────────────────────────────────────
+function setLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (loading) {
+    btn._label = btn.innerHTML;
+    btn.innerHTML = `<div class="spinner"></div>`;
+    btn.disabled = true;
+  } else {
+    btn.innerHTML = btn._label || btn.innerHTML;
+    btn.disabled = false;
+  }
+}
+
+// ─── Step 1: Send OTP ────────────────────────────────────────────────────────
+async function handleSendOtp() {
+  const mobile = document.getElementById("mobile-input").value.replace(/\s/g, "");
+
+  if (!/^[6-9]\d{9}$/.test(mobile)) {
+    showFeedback("feedback-mobile", "error", "Enter a valid 10-digit Indian mobile number starting with 6–9.");
+    return;
+  }
+
+  clearFeedback();
+  setLoading("btn-send-otp", true);
+
+  try {
+    const res = await fetch(`${API}/auth/send-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile }),
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      showFeedback("feedback-mobile", "error", data.message);
+      return;
+    }
+
+    currentMobile = mobile;
+    document.getElementById("otp-subtitle").textContent =
+      `Code sent to +91 ${mobile.slice(0,5)} ${mobile.slice(5)} via SMS & WhatsApp.`;
+
+    if (data._devOtp) {
+      showFeedback("feedback-otp", "info", `🔧 Dev mode — OTP: ${data._devOtp}`);
+    }
+
+    showScreen("screen-otp");
+    setupOtpInputs();
+    startCountdown(60);
+  } catch (err) {
+    showFeedback("feedback-mobile", "error", "Network error. Please try again.");
+  } finally {
+    setLoading("btn-send-otp", false);
+  }
+}
+
+// ─── OTP digit input logic ───────────────────────────────────────────────────
+function setupOtpInputs() {
+  const digits = document.querySelectorAll(".otp-digit");
+
+  digits.forEach((input, i) => {
+    input.value = "";
+    input.classList.remove("filled", "error-digit");
+
+    input.addEventListener("input", (e) => {
+      const val = e.target.value.replace(/\D/g, "");
+      e.target.value = val.slice(-1);
+      e.target.classList.toggle("filled", !!val);
+      if (val && i < digits.length - 1) digits[i + 1].focus();
+      // Auto-verify when all 6 filled
+      if ([...digits].every(d => d.value)) handleVerifyOtp();
+    });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" && !input.value && i > 0) {
+        digits[i - 1].value = "";
+        digits[i - 1].classList.remove("filled");
+        digits[i - 1].focus();
+      }
+    });
+
+    input.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const pasted = (e.clipboardData.getData("text") || "").replace(/\D/g, "").slice(0, 6);
+      pasted.split("").forEach((ch, j) => {
+        if (digits[j]) { digits[j].value = ch; digits[j].classList.add("filled"); }
+      });
+      if (pasted.length === 6) handleVerifyOtp();
+    });
+  });
+
+  digits[0].focus();
+}
+
+function getOtpValue() {
+  return [...document.querySelectorAll(".otp-digit")].map(d => d.value).join("");
+}
+
+function shakeOtp() {
+  document.querySelectorAll(".otp-digit").forEach(d => {
+    d.classList.add("error-digit");
+    d.value = "";
+    d.classList.remove("filled");
+    setTimeout(() => d.classList.remove("error-digit"), 400);
+  });
+  document.querySelectorAll(".otp-digit")[0].focus();
+}
+
+// ─── Step 2: Verify OTP ──────────────────────────────────────────────────────
+async function handleVerifyOtp() {
+  const otp = getOtpValue();
+  if (otp.length !== 6) return;
+
+  clearFeedback();
+  setLoading("btn-verify-otp", true);
+
+  try {
+    const res = await fetch(`${API}/auth/verify-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile: currentMobile, otp }),
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      showFeedback("feedback-otp", "error", data.message);
+      shakeOtp();
+      return;
+    }
+
+    clearCountdown();
+
+    if (data.isNewUser) {
+      showScreen("screen-register");
+    } else {
+      renderDashboard(data.profile);
+      showScreen("screen-dashboard");
+    }
+  } catch (err) {
+    showFeedback("feedback-otp", "error", "Network error. Please try again.");
+  } finally {
+    setLoading("btn-verify-otp", false);
+  }
+}
+
+// ─── Step 3a: Register ───────────────────────────────────────────────────────
+async function handleRegister() {
+  const name = document.getElementById("reg-name").value.trim();
+  if (name.length < 2) {
+    showFeedback("feedback-register", "error", "Please enter your full name.");
+    return;
+  }
+
+  clearFeedback();
+  setLoading("btn-register", true);
+
+  try {
+    const res = await fetch(`${API}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mobile: currentMobile,
+        name,
+        email: document.getElementById("reg-email").value.trim() || undefined,
+        city: document.getElementById("reg-city").value.trim() || undefined,
+        dateOfBirth: document.getElementById("reg-dob").value || undefined,
+      }),
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      showFeedback("feedback-register", "error", data.message);
+      return;
+    }
+
+    renderDashboard(data.profile);
+    showScreen("screen-dashboard");
+  } catch (err) {
+    showFeedback("feedback-register", "error", "Network error. Please try again.");
+  } finally {
+    setLoading("btn-register", false);
+  }
+}
+
+// ─── Dashboard render ─────────────────────────────────────────────────────────
+function renderDashboard(profile) {
+  const initials = (profile.name || "?")
+    .split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+
+  document.getElementById("dash-avatar").textContent = initials;
+  document.getElementById("dash-name").textContent = profile.name || "—";
+  document.getElementById("dash-mobile").textContent = `+91 ${profile.mobile}`;
+  document.getElementById("dash-email").textContent = profile.email || "—";
+  document.getElementById("dash-city").textContent = profile.city || "—";
+  document.getElementById("dash-logins").textContent = profile.loginCount ?? "—";
+
+  const since = profile.memberSince
+    ? new Date(profile.memberSince).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : "—";
+  document.getElementById("dash-since").textContent = since;
+}
+
+// ─── Resend countdown ─────────────────────────────────────────────────────────
+function startCountdown(seconds) {
+  const countdownEl = document.getElementById("resend-countdown");
+  const countValEl  = document.getElementById("countdown-val");
+  const resendBtn   = document.getElementById("btn-resend");
+
+  countdownEl.style.display = "inline";
+  resendBtn.style.display   = "none";
+  resendBtn.disabled = true;
+
+  let t = seconds;
+  clearCountdown();
+
+  countdownTimer = setInterval(() => {
+    t--;
+    countValEl.textContent = t;
+    if (t <= 0) {
+      clearCountdown();
+      countdownEl.style.display = "none";
+      resendBtn.style.display   = "inline";
+      resendBtn.disabled = false;
+    }
+  }, 1000);
+}
+
+function clearCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+}
+
+async function handleResend() {
+  document.getElementById("btn-resend").disabled = true;
+  clearFeedback();
+
+  try {
+    const res = await fetch(`${API}/auth/send-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile: currentMobile }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showFeedback("feedback-otp", "success", "New OTP sent via SMS & WhatsApp.");
+      if (data._devOtp) showFeedback("feedback-otp", "info", `🔧 Dev mode — OTP: ${data._devOtp}`);
+      setupOtpInputs();
+      startCountdown(60);
+    } else {
+      showFeedback("feedback-otp", "error", data.message);
+    }
+  } catch {
+    showFeedback("feedback-otp", "error", "Network error. Please try again.");
+  }
+}
+
+// ─── Reset ───────────────────────────────────────────────────────────────────
+function resetAll() {
+  currentMobile = "";
+  clearCountdown();
+  clearFeedback();
+  document.getElementById("mobile-input").value = "";
+  showScreen("screen-mobile");
+}
+
+// ─── Enter key support ───────────────────────────────────────────────────────
+document.getElementById("mobile-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") handleSendOtp();
+});
+</script>
+</body>
+</html>
