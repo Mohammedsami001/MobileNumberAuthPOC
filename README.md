@@ -9,18 +9,47 @@
 ## Architecture
 
 ```
-User Browser (index.html)
-       │
-       ▼
-Express Server (server.js)
+frontend/public/index.html (User Browser)
+        │
+        ▼
+backend/server.js (Express)
   ├── POST /auth/send-otp     → generate OTP → Redis (TTL 5min) → MSG91 (SMS + WA)
-  ├── POST /auth/verify-otp   → check Redis → return isNewUser flag
-  ├── POST /auth/register     → save to MongoDB → return profile
+  ├── POST /auth/verify-otp   → check Redis → set verified flag → return isNewUser
+  ├── POST /auth/register     → check verified flag → save to MongoDB → return profile
   └── GET  /auth/profile/:mob → fetch from MongoDB
-       │
-  ┌────┴────┐
-Redis     MongoDB
-(OTP TTL) (Users)
+        │
+  ┌─────┴─────┐
+Redis        MongoDB
+(OTP TTL,    (Users)
+ cooldowns,
+ verified
+ flags)
+```
+
+### Directory structure
+
+```
+├── backend/
+│   ├── server.js              # Express app, middleware, boot
+│   ├── package.json           # Dependencies
+│   ├── routes/
+│   │   └── auth.js            # Auth route handlers
+│   ├── services/
+│   │   ├── otp.js             # OTP create/verify (Redis)
+│   │   ├── msg91.js           # MSG91 SMS + WhatsApp delivery
+│   │   └── redis.js           # Redis client singleton
+│   ├── models/
+│   │   └── User.js            # Mongoose user schema
+│   └── __tests__/
+│       ├── otp.test.js        # OTP lifecycle tests
+│       └── auth.test.js       # Auth route integration tests
+├── frontend/
+│   └── public/
+│       └── index.html         # Single-page frontend
+├── .env.example               # Config template
+├── .gitignore
+├── README.md
+└── PROVIDER_DECISION.md       # Provider comparison & pricing
 ```
 
 ## Auth flow
@@ -32,7 +61,9 @@ Enter 6-digit OTP → [Verify]
      ↓
   OTP Invalid? → Show error, count attempts, block after 3 failures
      ↓
-  New user?  → Account creation form → Dashboard
+  OTP Valid → set verified:{mobile} in Redis (10-min window)
+     ↓
+  New user?  → Account creation form (requires verified flag) → Dashboard
   Existing?  → Dashboard with profile
 ```
 
@@ -64,6 +95,8 @@ cp .env.example .env
 The server will print the OTP to console and return it in the API response as `_devOtp`.  
 The frontend will display it in a blue banner — perfect for local testing.
 
+> **Note:** In production, set `NODE_ENV=production` to ensure `_devOtp` is never exposed in API responses, even if MSG91 credentials are accidentally unset.
+
 ### Run
 
 ```bash
@@ -80,6 +113,15 @@ node server.js
 
 Open http://localhost:3000
 
+### Test
+
+```bash
+cd backend
+npm test
+```
+
+Runs 26 integration tests (OTP lifecycle + auth routes) using in-memory Redis and MongoDB — no external services needed.
+
 ---
 
 ## API reference
@@ -92,11 +134,14 @@ Open http://localhost:3000
 // Response (success)
 { "success": true, "message": "OTP sent via SMS and WhatsApp." }
 
-// Response (mock mode adds)
-{ "_devOtp": "482931", "_note": "Mock mode..." }
+// Response (mock mode, non-production only)
+{ "success": true, "_devOtp": "482931", "_note": "Mock mode — real MSG91 credentials not configured." }
 
 // Response (cooldown)
-{ "success": false, "message": "Wait 45 seconds before requesting again." }
+{ "success": false, "message": "OTP already sent. Wait 58 seconds before requesting again." }
+
+// Response (blocked)
+{ "success": false, "message": "Too many failed attempts. Try again in 15 minutes." }
 ```
 
 ### `POST /auth/verify-otp`
@@ -112,11 +157,17 @@ Open http://localhost:3000
 
 // Response (wrong OTP)
 { "success": false, "reason": "INVALID", "message": "Incorrect OTP. 2 attempt(s) remaining." }
+
+// Response (expired)
+{ "success": false, "reason": "EXPIRED", "message": "OTP has expired. Please request a new one." }
+
+// Response (max attempts)
+{ "success": false, "reason": "MAX_ATTEMPTS", "message": "Too many wrong attempts. Try again in 15 minutes." }
 ```
 
 ### `POST /auth/register`
 ```json
-// Request
+// Request (mobile must be OTP-verified first)
 {
   "mobile": "9876543210",
   "name": "Priya Sharma",
@@ -125,8 +176,14 @@ Open http://localhost:3000
   "dateOfBirth": "1995-06-15"
 }
 
-// Response
-{ "success": true, "profile": { "id": "...", "name": "Priya Sharma", ... } }
+// Response (success)
+{ "success": true, "message": "Account created successfully.", "profile": { "id": "...", "name": "Priya Sharma", ... } }
+
+// Response (not verified)
+{ "success": false, "message": "Mobile number must be verified before registration." }
+
+// Response (already exists)
+{ "success": false, "message": "Account already exists for this number." }
 ```
 
 ### `GET /auth/profile/:mobile`
@@ -156,6 +213,9 @@ Open http://localhost:3000
 - 3 failed attempts → 15-minute block (stored in Redis)
 - 60-second resend cooldown (Redis key with TTL)
 - OTP auto-expires after 5 minutes (Redis TTL)
+- Registration requires prior OTP verification (Redis `verified:{mobile}` flag with 10-min TTL)
+- Mock-mode OTP (`_devOtp`) suppressed when `NODE_ENV=production`
+- Async errors return `500 JSON`, never raw stack traces
 - In production: add JWT session tokens after verification
 
 ---

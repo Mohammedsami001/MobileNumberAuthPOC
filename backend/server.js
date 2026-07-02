@@ -1,8 +1,8 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "../.env") });
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-const path = require("path");
 const redis = require("./services/redis");
 
 const app = express();
@@ -32,6 +32,13 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/public/index.html"));
 });
 
+// ── Error middleware ─────────────────────────────────────────────────────────
+// Catches unhandled errors from async route handlers
+app.use((err, req, res, _next) => {
+  console.error("[Unhandled Error]", err.message);
+  res.status(500).json({ success: false, message: "Internal server error." });
+});
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 async function start() {
   // Initialize Redis
@@ -55,4 +62,10 @@ async function start() {
   });
 }
 
-start().catch(console.error);
+// Only auto-start when run directly (not when required by tests)
+if (require.main === module) {
+  start().catch(console.error);
+}
+
+module.exports = { app, start };
+

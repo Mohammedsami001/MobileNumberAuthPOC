@@ -80,7 +80,7 @@ No need for separate Twilio + Meta BSP integrations.
    Requires: Business GST, website, Facebook Business Manager account
 5. **WhatsApp Auth Template** → Get approved:  
    `{{1}} is your verification code. For your security, do not share this code.`
-6. **Set ENV vars** → Copy `.env.example` to `.env`, fill in `MSG91_API_KEY`, `MSG91_SENDER_ID`, `MSG91_TEMPLATE_ID`, `MSG91_WHATSAPP_NUMBER`
+6. **Set ENV vars** → Copy `.env.example` to `.env` (both in project root), fill in `MSG91_API_KEY`, `MSG91_SENDER_ID`, `MSG91_TEMPLATE_ID`, `MSG91_WHATSAPP_NUMBER`. Then run `cd backend && node server.js`.
 
 ---
 

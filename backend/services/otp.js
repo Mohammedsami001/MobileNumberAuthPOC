@@ -25,12 +25,13 @@ const KEY = {
 
 /**
  * Cryptographically secure OTP — not Math.random().
+ * Uses modulo on crypto.randomBytes output. The bias is negligible
+ * for OTP ranges (~0.02% for 6-digit codes) and acceptable for this use case.
  */
 function generateOtp() {
   const max = Math.pow(10, OTP_LENGTH);
   const min = Math.pow(10, OTP_LENGTH - 1);
   const range = max - min;
-  // Use rejection sampling to avoid modulo bias
   const bytes = crypto.randomBytes(4);
   const num = bytes.readUInt32BE(0);
   return String(min + (num % range));
@@ -60,13 +61,13 @@ async function createOtp(mobile) {
   const otp = generateOtp();
 
   // Store OTP with TTL
-  await client.set(KEY.otp(mobile), otp, { EX: OTP_EXPIRY });
+  await client.set(KEY.otp(mobile), otp, "EX", OTP_EXPIRY);
 
   // Reset attempt counter
   await client.del(KEY.attempts(mobile));
 
   // Set resend cooldown
-  await client.set(KEY.cooldown(mobile), "1", { EX: RESEND_COOLDOWN });
+  await client.set(KEY.cooldown(mobile), "1", "EX", RESEND_COOLDOWN);
 
   return { success: true, otp };
 }
@@ -105,7 +106,7 @@ async function verifyOtp(mobile, submittedOtp) {
 
     if (attempts >= MAX_ATTEMPTS) {
       // Block for 15 minutes after too many failures
-      await client.set(KEY.block(mobile), "1", { EX: 900 });
+      await client.set(KEY.block(mobile), "1", "EX", 900);
       await client.del(KEY.otp(mobile));
       await client.del(KEY.attempts(mobile));
       return { success: false, reason: "MAX_ATTEMPTS", retryAfter: 900 };
@@ -126,4 +127,4 @@ async function verifyOtp(mobile, submittedOtp) {
   return { success: true };
 }
 
-module.exports = { createOtp, verifyOtp };
+module.exports = { createOtp, verifyOtp, KEY, generateOtp };

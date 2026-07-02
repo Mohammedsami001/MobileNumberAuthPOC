@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { createOtp, verifyOtp } = require("../services/otp");
 const { sendOtpBothChannels } = require("../services/msg91");
+const redis = require("../services/redis");
 const User = require("../models/User");
 
 // ── Input validators ──────────────────────────────────────────────────────────
@@ -10,12 +11,22 @@ function isValidIndianMobile(mobile) {
   return /^[6-9]\d{9}$/.test(mobile);
 }
 
+// ── Async wrapper ─────────────────────────────────────────────────────────────
+// Catches async errors and forwards them to Express error middleware
+function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+// ── Verification key ──────────────────────────────────────────────────────────
+const VERIFIED_KEY = (mobile) => `verified:${mobile}`;
+const VERIFIED_TTL = 600; // 10 minutes to complete registration after OTP verify
+
 // ── POST /auth/send-otp ───────────────────────────────────────────────────────
 /**
  * Step 1: User submits mobile number.
  * Generates OTP → stores in Redis → fires SMS + WhatsApp simultaneously.
  */
-router.post("/send-otp", async (req, res) => {
+router.post("/send-otp", asyncHandler(async (req, res) => {
   const { mobile } = req.body;
 
   if (!mobile || !isValidIndianMobile(String(mobile))) {
@@ -47,15 +58,18 @@ router.post("/send-otp", async (req, res) => {
 
   const isMock = deliveryResult.channels.sms?.mock || deliveryResult.channels.whatsapp?.mock;
 
+  // Only expose OTP in dev/test — never in production, even if MSG91 keys are missing
+  const showDevOtp = isMock && process.env.NODE_ENV !== "production";
+
   return res.json({
     success: true,
     message: "OTP sent via SMS and WhatsApp.",
-    ...(isMock && {
+    ...(showDevOtp && {
       _devOtp: otp,
       _note: "Mock mode — real MSG91 credentials not configured.",
     }),
   });
-});
+}));
 
 // ── POST /auth/verify-otp ─────────────────────────────────────────────────────
 /**
@@ -64,7 +78,7 @@ router.post("/send-otp", async (req, res) => {
  *   - isNewUser: true  → frontend shows registration form
  *   - isNewUser: false → frontend redirects to dashboard
  */
-router.post("/verify-otp", async (req, res) => {
+router.post("/verify-otp", asyncHandler(async (req, res) => {
   const { mobile, otp } = req.body;
 
   if (!mobile || !otp) {
@@ -87,6 +101,10 @@ router.post("/verify-otp", async (req, res) => {
     });
   }
 
+  // Mark this mobile as verified (allows registration within TTL window)
+  const client = redis.getClient();
+  await client.set(VERIFIED_KEY(mobile), "1", "EX", VERIFIED_TTL);
+
   // OTP verified — check if user exists
   let user = await User.findOne({ mobile: String(mobile) });
   const isNewUser = !user;
@@ -100,14 +118,14 @@ router.post("/verify-otp", async (req, res) => {
     isNewUser,
     ...(isNewUser ? {} : { profile: user.toProfile() }),
   });
-});
+}));
 
 // ── POST /auth/register ───────────────────────────────────────────────────────
 /**
  * Step 3a (new users only): Create account with basic details.
- * Mobile is already verified at this point — no re-verification needed.
+ * Mobile must have been OTP-verified in this session (checked via Redis key).
  */
-router.post("/register", async (req, res) => {
+router.post("/register", asyncHandler(async (req, res) => {
   const { mobile, name, email, city, dateOfBirth } = req.body;
 
   if (!mobile || !isValidIndianMobile(String(mobile))) {
@@ -116,6 +134,16 @@ router.post("/register", async (req, res) => {
 
   if (!name || String(name).trim().length < 2) {
     return res.status(400).json({ success: false, message: "Please enter your full name." });
+  }
+
+  // Gate: require OTP verification before registration
+  const client = redis.getClient();
+  const verified = await client.get(VERIFIED_KEY(String(mobile)));
+  if (!verified) {
+    return res.status(403).json({
+      success: false,
+      message: "Mobile number must be verified before registration.",
+    });
   }
 
   // Guard: don't allow registration if user already exists
@@ -140,19 +168,22 @@ router.post("/register", async (req, res) => {
 
   await user.save();
 
+  // Clean up verification key after successful registration
+  await client.del(VERIFIED_KEY(String(mobile)));
+
   return res.status(201).json({
     success: true,
     message: "Account created successfully.",
     profile: user.toProfile(),
   });
-});
+}));
 
 // ── GET /auth/profile/:mobile ─────────────────────────────────────────────────
 /**
  * Dashboard: fetch user profile.
  * In production this would be a JWT-protected endpoint.
  */
-router.get("/profile/:mobile", async (req, res) => {
+router.get("/profile/:mobile", asyncHandler(async (req, res) => {
   const user = await User.findOne({ mobile: req.params.mobile });
 
   if (!user) {
@@ -160,6 +191,6 @@ router.get("/profile/:mobile", async (req, res) => {
   }
 
   return res.json({ success: true, profile: user.toProfile() });
-});
+}));
 
 module.exports = router;
