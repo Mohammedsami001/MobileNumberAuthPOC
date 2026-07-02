@@ -1,0 +1,3 @@
+- User prefers comprehensive, everything-in-one-place explanations over incremental lessons
+- Needs to explain this to a boss who assigned the task — so tone should be "I built this and here's why" not "here's how this works in theory"
+- Wants to understand EVERYTHING — code, architecture, security, provider, testing, and how to talk about it

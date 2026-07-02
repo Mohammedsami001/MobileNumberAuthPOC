@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 1 — The Complete Mobile Auth POC</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+
+<h1>The Complete Mobile Auth POC</h1>
+<p class="subtitle">
+  Everything you need to explain this project to your boss — architecture, code, provider choice, security, and testing.
+  <br>
+  <span class="tag">Node.js</span>
+  <span class="tag">Express</span>
+  <span class="tag">Redis</span>
+  <span class="tag">MongoDB</span>
+  <span class="tag">MSG91</span>
+</p>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="big-picture">1. The Big Picture — What This App Does</h2>
+
+<p>This is a <strong>mobile number authentication service</strong>. Instead of passwords, users prove who they are by receiving a one-time password (OTP) on their phone — both via <strong>SMS</strong> and <strong>WhatsApp</strong> simultaneously.</p>
+
+<div class="info-box tip">
+  <strong>Why OTP instead of passwords?</strong><br>
+  No password database to leak. No "forgot password" flow. The user's phone IS the credential. This is standard for Indian apps — Swiggy, Zomato, PhonePe, Paytm all work this way.
+</div>
+
+<p>The complete user flow has 4 steps:</p>
+
+<div class="flow-step">
+  <div class="flow-num">1</div>
+  <div class="flow-content">
+    <strong>Enter mobile number</strong>
+    User types their 10-digit Indian mobile number. The app validates it (must start with 6-9, exactly 10 digits).
+  </div>
+</div>
+
+<div class="flow-step">
+  <div class="flow-num">2</div>
+  <div class="flow-content">
+    <strong>Send OTP</strong>
+    Backend generates a secure 6-digit code, stores it in Redis (auto-expires in 5 min), and fires SMS + WhatsApp <em>simultaneously</em> through MSG91.
+  </div>
+</div>
+
+<div class="flow-step">
+  <div class="flow-num">3</div>
+  <div class="flow-content">
+    <strong>Verify OTP</strong>
+    User enters the 6-digit code. Backend checks it against Redis. Wrong code? Track attempts — block after 3 failures for 15 minutes. Right code? Proceed.
+  </div>
+</div>
+
+<div class="flow-step">
+  <div class="flow-num">4</div>
+  <div class="flow-content">
+    <strong>Route the user</strong>
+    Check MongoDB — does this mobile number already have an account?<br>
+    &bull; <strong>New user</strong> → show registration form (name, email, city)<br>
+    &bull; <strong>Existing user</strong> → go straight to dashboard with their profile
+  </div>
+</div>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="architecture">2. Architecture — How the Pieces Fit Together</h2>
+
+<h3>The 3 technologies and WHY each one</h3>
+
+<table>
+  <tr><th>Technology</th><th>What it stores</th><th>Why THIS database?</th></tr>
+  <tr>
+    <td><strong>Redis</strong></td>
+    <td>OTPs, cooldowns, block flags, attempt counts, verified flags</td>
+    <td>Has native <strong>TTL</strong> (time-to-live) on keys — OTPs auto-delete after 5 min. No cron jobs needed. Sub-millisecond reads.</td>
+  </tr>
+  <tr>
+    <td><strong>MongoDB</strong></td>
+    <td>User accounts (name, email, city, login history)</td>
+    <td>Permanent data needs a permanent database. MongoDB is schema-flexible — good for a POC where user fields might change.</td>
+  </tr>
+  <tr>
+    <td><strong>Express.js</strong></td>
+    <td>HTTP API + serves frontend</td>
+    <td>Lightweight, ~30 lines of setup. Perfect for a POC. The whole backend is one process.</td>
+  </tr>
+</table>
+
+<h3>What is Redis TTL?</h3>
+
+<p>When you store a value in Redis, you can say <em>"delete this automatically after X seconds"</em>. This is called <strong>TTL (Time To Live)</strong>.</p>
+
+<pre><code>// "Store this OTP, but delete it after 300 seconds (5 minutes)"
+await redis.set("otp:9876543210", "482931", "EX", 300);
+
+// After 5 minutes, this returns null — the OTP expired
+await redis.get("otp:9876543210"); // → null</code></pre>
+
+<p>This is why Redis is perfect for OTPs. You don't need a background job checking "has this OTP expired?" — Redis handles it automatically.</p>
+
+<h3>The Redis keys this app uses</h3>
+
+<table>
+  <tr><th>Key pattern</th><th>Value</th><th>TTL</th><th>Purpose</th></tr>
+  <tr><td><code>otp:{mobile}</code></td><td>6-digit code</td><td>5 min</td><td>The actual OTP to verify against</td></tr>
+  <tr><td><code>otp_cooldown:{mobile}</code></td><td>"1"</td><td>60 sec</td><td>Prevents resending OTP within 60 seconds</td></tr>
+  <tr><td><code>otp_attempts:{mobile}</code></td><td>Number</td><td>None</td><td>How many wrong OTP guesses so far</td></tr>
+  <tr><td><code>otp_block:{mobile}</code></td><td>"1"</td><td>15 min</td><td>Blocks the number after 3 wrong attempts</td></tr>
+  <tr><td><code>verified:{mobile}</code></td><td>"1"</td><td>10 min</td><td>Proof that OTP was verified — required to register</td></tr>
+</table>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="directory">3. Project Structure — Every File Explained</h2>
+
+<pre><code>d:\OTP\
+├── backend/
+│   ├── server.js            ← Entry point. Sets up Express, middleware, serves frontend
+│   ├── package.json         ← Dependencies and scripts
+│   ├── routes/
+│   │   └── auth.js          ← All 4 API endpoints (send-otp, verify-otp, register, profile)
+│   ├── services/
+│   │   ├── otp.js           ← OTP generation + verification logic (talks to Redis)
+│   │   ├── msg91.js         ← MSG91 API integration for SMS + WhatsApp delivery
+│   │   └── redis.js         ← Redis connection singleton
+│   ├── models/
+│   │   └── User.js          ← Mongoose schema for user accounts
+│   └── __tests__/
+│       ├── otp.test.js      ← 11 tests for OTP lifecycle
+│       └── auth.test.js     ← 15 tests for HTTP endpoints
+├── frontend/
+│   └── public/
+│       └── index.html       ← Single-page frontend (vanilla HTML/CSS/JS)
+├── .env.example             ← Config template (Redis URL, MongoDB URI, MSG91 keys)
+├── .gitignore               ← Protects .env and node_modules
+├── README.md                ← Project documentation
+└── PROVIDER_DECISION.md     ← Provider research and pricing comparison</code></pre>
+
+<div class="info-box tip">
+  <strong>Why is the code split into routes/, services/, and models/?</strong><br>
+  This is the <strong>MVC-like pattern</strong>. Routes handle HTTP (what the user sends and receives). Services handle business logic (OTP rules, rate limiting). Models handle data shape (what a User looks like in the database). Each layer only talks to the one below it — routes call services, services call models/Redis.
+</div>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="api">4. The 4 API Endpoints — Step by Step</h2>
+
+<h3>Endpoint 1: <code>POST /auth/send-otp</code></h3>
+
+<p><strong>What it does:</strong> Takes a mobile number, generates an OTP, stores it in Redis, sends it via SMS + WhatsApp.</p>
+
+<pre><code>// Frontend sends:
+{ "mobile": "9876543210" }
+
+// Backend does:
+1. Validate: starts with 6-9, exactly 10 digits?  → 400 if no
+2. Check Redis: is this number blocked?            → 429 "too many attempts"
+3. Check Redis: was OTP sent less than 60s ago?    → 429 "wait before resending"
+4. Generate OTP: crypto.randomBytes → 6-digit code
+5. Store in Redis: otp:9876543210 = "482931" (TTL 5 min)
+6. Set cooldown: otp_cooldown:9876543210 = "1" (TTL 60 sec)
+7. Call MSG91: fire SMS and WhatsApp simultaneously
+8. Return: { success: true, message: "OTP sent" }</code></pre>
+
+<h3>Endpoint 2: <code>POST /auth/verify-otp</code></h3>
+
+<p><strong>What it does:</strong> Checks the submitted OTP against Redis. If correct, checks if the user exists in MongoDB.</p>
+
+<pre><code>// Frontend sends:
+{ "mobile": "9876543210", "otp": "482931" }
+
+// Backend does:
+1. Get stored OTP from Redis: otp:9876543210
+2. If no key → OTP expired (TTL ran out)                    → 401 "EXPIRED"
+3. Compare using crypto.timingSafeEqual (constant-time)
+4. If wrong → increment attempts, check if ≥ 3              → 401 "INVALID" or "MAX_ATTEMPTS"
+5. If correct:
+   a. Delete OTP + attempt keys from Redis (cleanup)
+   b. Set verified:9876543210 = "1" (TTL 10 min) in Redis
+   c. Check MongoDB: User.findOne({ mobile: "9876543210" })
+   d. Return { isNewUser: true } or { isNewUser: false, profile: {...} }</code></pre>
+
+<div class="info-box warn">
+  <strong>What is <code>timingSafeEqual</code> and why does it matter?</strong><br>
+  Normal string comparison (<code>===</code>) returns false as soon as the first wrong character is found. An attacker can measure how long the comparison takes to guess characters one by one. <code>timingSafeEqual</code> always takes the same time regardless of where the mismatch is, preventing this <strong>timing attack</strong>.
+</div>
+
+<h3>Endpoint 3: <code>POST /auth/register</code></h3>
+
+<p><strong>What it does:</strong> Creates a new user account. Only works if the mobile number was OTP-verified.</p>
+
+<pre><code>// Frontend sends:
+{ "mobile": "9876543210", "name": "Priya Sharma", "email": "...", "city": "Mumbai" }
+
+// Backend does:
+1. Validate mobile number and name
+2. CHECK REDIS: is verified:9876543210 set?      → 403 if not!
+3. CHECK MONGODB: does user already exist?        → 409 if yes
+4. Create new User in MongoDB
+5. Delete verified key (one-time use)
+6. Return: { success: true, profile: {...} }</code></pre>
+
+<div class="info-box danger">
+  <strong>The Verification Gate — this is critical.</strong><br>
+  Without step 2, <em>anyone</em> could call <code>POST /auth/register</code> directly with any phone number and create a fake account. The <code>verified:{mobile}</code> Redis key ensures that only someone who actually received and typed the correct OTP can register. This key auto-expires after 10 minutes.
+</div>
+
+<h3>Endpoint 4: <code>GET /auth/profile/:mobile</code></h3>
+
+<p><strong>What it does:</strong> Fetches user profile from MongoDB. Used for the dashboard screen.</p>
+
+<pre><code>// Browser requests:
+GET /auth/profile/9876543210
+
+// Returns:
+{ name, mobile, email, city, memberSince, lastLogin, loginCount }</code></pre>
+
+<div class="info-box tip">
+  <strong>Boss question: "Is the profile endpoint secure?"</strong><br>
+  For the POC, no — it's unauthenticated. In production, you'd add JWT tokens: after OTP verification, the server issues a signed token, and the profile endpoint requires that token in the <code>Authorization</code> header. This was intentionally scoped out of the POC.
+</div>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="otp-service">5. The OTP Service — Deep Dive into <code>otp.js</code></h2>
+
+<h3>OTP Generation: Why <code>crypto.randomBytes</code>?</h3>
+
+<pre><code>// ❌ BAD — Math.random() is predictable
+const otp = Math.floor(100000 + Math.random() * 900000);
+
+// ✅ GOOD — crypto.randomBytes is cryptographically secure
+const bytes = crypto.randomBytes(4);      // 4 random bytes from OS
+const num = bytes.readUInt32BE(0);         // Convert to integer
+const otp = String(100000 + (num % 900000)); // Map to 6-digit range</code></pre>
+
+<p><code>Math.random()</code> uses a pseudorandom number generator (PRNG) — if you know the seed, you can predict every output. <code>crypto.randomBytes()</code> uses the operating system's secure entropy source (<code>/dev/urandom</code> on Linux, <code>CryptGenRandom</code> on Windows). It's unpredictable.</p>
+
+<h3>Rate Limiting: The 3-Layer Defense</h3>
+
+<table>
+  <tr><th>Layer</th><th>What it prevents</th><th>How</th></tr>
+  <tr><td><strong>Cooldown</strong> (60s)</td><td>OTP spam / SMS bombing</td><td>After sending OTP, set a 60s Redis key. If it exists, refuse to send another.</td></tr>
+  <tr><td><strong>Attempt limit</strong> (3 tries)</td><td>Brute-force guessing</td><td>Track wrong guesses. After 3 wrong OTPs → block.</td></tr>
+  <tr><td><strong>Block</strong> (15 min)</td><td>Persistent attackers</td><td>After hitting max attempts, set a 15-min block key. No OTP send or verify allowed.</td></tr>
+</table>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="msg91">6. Provider Choice — Why MSG91?</h2>
+
+<p>The task said: <em>"Research the cheapest reliable SMS + WhatsApp OTP provider. Do not use Twilio."</em></p>
+
+<h3>I compared 7 providers:</h3>
+
+<table>
+  <tr><th>Provider</th><th>SMS (per OTP)</th><th>WhatsApp (per OTP)</th><th>Result</th></tr>
+  <tr><td>Twilio</td><td>₹0.55 + forex</td><td>₹2.60 + markup</td><td style="color:#ef4444">❌ Too expensive, explicitly excluded</td></tr>
+  <tr><td>MSG91</td><td>₹0.15–0.20</td><td>₹0.12 (Meta rate, 0 markup)</td><td style="color:#22c55e">✅ Chosen</td></tr>
+  <tr><td>2Factor</td><td>₹0.18</td><td>No WhatsApp</td><td style="color:#ef4444">❌ No WhatsApp</td></tr>
+  <tr><td>Gupshup</td><td>₹0.15–0.18</td><td>₹0.12</td><td>Close second</td></tr>
+  <tr><td>Kaleyra</td><td>₹0.18</td><td>₹0.12+</td><td>Enterprise-focused</td></tr>
+  <tr><td>Exotel</td><td>₹0.20</td><td>No WhatsApp</td><td style="color:#ef4444">❌ No WhatsApp</td></tr>
+  <tr><td>Firebase Auth</td><td>Free (10K/mo)</td><td>No WhatsApp</td><td style="color:#ef4444">❌ No WhatsApp, phone-only</td></tr>
+</table>
+
+<h3>Why MSG91 won:</h3>
+
+<ol>
+  <li><strong>Cheapest combo</strong>: ₹0.27–0.32 per OTP for BOTH channels (SMS + WhatsApp)</li>
+  <li><strong>Zero WhatsApp markup</strong>: Passes through Meta's rate directly (₹0.12)</li>
+  <li><strong>Single API</strong>: Both channels from one provider = one integration, one dashboard</li>
+  <li><strong>Indian carrier relationships</strong>: Direct connections to Jio/Airtel/Vi/BSNL = fast delivery, fewer DLT issues</li>
+  <li><strong>5K–50K OTPs/month costs ₹1,350–₹16,000</strong> vs Twilio's ₹4,500–₹45,000+</li>
+</ol>
+
+<div class="info-box success">
+  <strong>Boss talking point:</strong><br>
+  "I evaluated 7 providers across pricing, WhatsApp support, and India-specific reliability. MSG91 is 60–70% cheaper than Twilio, handles both SMS and WhatsApp with a single integration, and has direct carrier relationships for fast OTP delivery in India. The full comparison is documented in PROVIDER_DECISION.md."
+</div>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="msg91-code">7. MSG91 Integration — How the Code Works</h2>
+
+<p>The <code>msg91.js</code> service has a built-in <strong>mock mode</strong>. If <code>MSG91_API_KEY</code> is not set, it doesn't call the real API — it just prints the OTP to the console.</p>
+
+<pre><code>// Mock mode (no API key set):
+console.log("[MOCK SMS] → 9876543210: OTP is 482931");
+// Returns: { success: true, mock: true }
+
+// Real mode (API key configured):
+// Makes HTTP POST to MSG91 API
+// Returns: { success: true, mock: false }</code></pre>
+
+<p><strong>Both channels fire simultaneously</strong> using <code>Promise.allSettled</code>:</p>
+
+<pre><code>const [smsResult, waResult] = await Promise.allSettled([
+  sendSmsOtp(mobile, otp),      // fires SMS
+  sendWhatsAppOtp(mobile, otp)  // fires WhatsApp at the same time
+]);</code></pre>
+
+<p>Why <code>allSettled</code> instead of <code>Promise.all</code>? Because <code>Promise.all</code> would fail BOTH if either one fails. <code>allSettled</code> lets SMS succeed even if WhatsApp fails (or vice versa). Success = at least one channel delivered.</p>
+
+<div class="info-box warn">
+  <strong>Mock-mode safety guard:</strong><br>
+  In dev mode, the API response includes <code>_devOtp: "482931"</code> so you can test without a phone. But if <code>NODE_ENV=production</code>, this field is NEVER sent — even if the MSG91 key is accidentally unset. This prevents leaking OTPs in production.
+</div>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="security">8. Security Measures</h2>
+
+<p>There are <strong>8 security measures</strong> in this POC. Know all of them:</p>
+
+<table>
+  <tr><th>#</th><th>Measure</th><th>What it prevents</th><th>Where</th></tr>
+  <tr><td>1</td><td><code>crypto.randomBytes</code></td><td>Predictable OTPs</td><td>otp.js</td></tr>
+  <tr><td>2</td><td><code>timingSafeEqual</code></td><td>Timing side-channel attacks</td><td>otp.js</td></tr>
+  <tr><td>3</td><td>3-attempt limit + 15-min block</td><td>Brute-force guessing</td><td>otp.js</td></tr>
+  <tr><td>4</td><td>60-second resend cooldown</td><td>SMS bombing / cost abuse</td><td>otp.js</td></tr>
+  <tr><td>5</td><td>5-minute OTP expiry (Redis TTL)</td><td>Stale OTP reuse</td><td>otp.js</td></tr>
+  <tr><td>6</td><td>Verification gate (<code>verified:{mobile}</code>)</td><td>Registration without proving phone ownership</td><td>auth.js</td></tr>
+  <tr><td>7</td><td>Production OTP leak guard</td><td>Exposing OTP in responses when MSG91 keys are unset</td><td>auth.js</td></tr>
+  <tr><td>8</td><td>Error middleware (no stack traces)</td><td>Leaking internal code details to attackers</td><td>server.js</td></tr>
+</table>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="testing">9. Testing — 26 Integration Tests</h2>
+
+<p>The test suite runs <strong>without any external services</strong>. No Redis server, no MongoDB server, no MSG91 API key.</p>
+
+<h3>How?</h3>
+
+<table>
+  <tr><th>Real dependency</th><th>Test replacement</th><th>Why this approach?</th></tr>
+  <tr><td>Redis server</td><td><code>ioredis-mock</code></td><td>In-memory, supports TTL, same API as real Redis</td></tr>
+  <tr><td>MongoDB server</td><td><code>mongodb-memory-server</code></td><td>Real Mongoose/MongoDB engine, runs in-process</td></tr>
+  <tr><td>MSG91 HTTP calls</td><td>Mock mode (no API key)</td><td>Built into msg91.js — no mock library needed</td></tr>
+  <tr><td>Express server</td><td><code>supertest</code></td><td>Makes real HTTP requests without starting a server</td></tr>
+</table>
+
+<h3>What the tests cover:</h3>
+
+<p><strong>OTP tests (11 tests)</strong>: OTP is 6 digits, stored in Redis with TTL, correct OTP succeeds, wrong OTP fails, attempts tracked, blocked after 3 failures, cooldown enforced.</p>
+
+<p><strong>Auth tests (15 tests)</strong>: Send-OTP returns 200, mock OTP exposed in dev mode, invalid numbers rejected, cooldown returns 429, verify-OTP works for new/existing users, registration requires verification, duplicate registration blocked, short names rejected, production OTP leak guard, errors return 500 JSON (not stack traces), profile endpoint works.</p>
+
+<pre><code>$ cd backend
+$ npm test
+
+PASS __tests__/auth.test.js (15 tests)
+PASS __tests__/otp.test.js (11 tests)
+
+Test Suites: 2 passed, 2 total
+Tests:       26 passed, 26 total</code></pre>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="frontend">10. The Frontend — Single-Page Vanilla JS</h2>
+
+<p>The entire frontend is <strong>one HTML file</strong> — no React, no build tools. It has 4 screens that show/hide based on the auth flow state:</p>
+
+<table>
+  <tr><th>Screen</th><th>When it shows</th><th>What it does</th></tr>
+  <tr><td><strong>Phone input</strong></td><td>Initial load</td><td><code>+91</code> prefix + 10-digit input</td></tr>
+  <tr><td><strong>OTP input</strong></td><td>After OTP sent</td><td>6 individual digit boxes, auto-advance on type, paste support, auto-submit when all filled</td></tr>
+  <tr><td><strong>Registration</strong></td><td><code>isNewUser: true</code></td><td>Name, email, city, DOB fields</td></tr>
+  <tr><td><strong>Dashboard</strong></td><td><code>isNewUser: false</code> or after registration</td><td>Shows name, email, city, member since, login count</td></tr>
+</table>
+
+<p>In mock mode, a blue banner shows the OTP directly on the page — no need to check your phone or the console.</p>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="server">11. server.js — The Entry Point</h2>
+
+<p>The server file does 5 things:</p>
+
+<ol>
+  <li><strong>Loads config</strong> from <code>.env</code> (uses <code>path.join(__dirname, "../.env")</code> because the .env is in the project root but server.js is in <code>backend/</code>)</li>
+  <li><strong>Sets up middleware</strong>: JSON body parsing, CORS, static file serving for the frontend</li>
+  <li><strong>Connects to MongoDB</strong> via Mongoose</li>
+  <li><strong>Mounts routes</strong>: all auth routes live under <code>/auth/*</code></li>
+  <li><strong>Error middleware</strong>: catches unhandled errors and returns <code>{ success: false, message: "Internal server error." }</code> instead of leaking stack traces</li>
+</ol>
+
+<p>It also exports the <code>app</code> object for testing:</p>
+
+<pre><code>// This lets supertest import the app without starting the server
+module.exports = { app, start };
+
+// The server only boots when run directly (not when imported by tests)
+if (require.main === module) {
+  start();
+}</code></pre>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="demo">12. How to Demo It</h2>
+
+<ol>
+  <li>Make sure Redis and MongoDB are running</li>
+  <li><code>cd backend && node server.js</code></li>
+  <li>Open <code>http://localhost:3000</code></li>
+  <li>Enter any valid Indian number (e.g. 9876543210)</li>
+  <li>The blue mock banner shows the OTP — type it in</li>
+  <li>First time → registration form → fill it → dashboard</li>
+  <li>Same number again → straight to dashboard with login count incremented</li>
+</ol>
+
+<div class="info-box tip">
+  <strong>Run tests:</strong> <code>cd backend && npm test</code> — all 26 tests pass in ~5 seconds with zero external dependencies.
+</div>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="boss-questions">13. Questions Your Boss Will Probably Ask</h2>
+
+<div class="quiz">
+  <p class="quiz-q">Q: "Why did you choose MSG91 over other providers?"</p>
+  <div class="info-box success" style="margin-top: 0.5rem;">
+    <strong>Your answer:</strong> "I compared 7 providers. MSG91 is the cheapest for India at ₹0.27–0.32 per OTP for both SMS and WhatsApp combined. It's 60–70% cheaper than Twilio. It passes through Meta's WhatsApp rate with zero markup. And it has direct carrier relationships with Indian telcos for fast delivery. The full comparison is in PROVIDER_DECISION.md."
+  </div>
+</div>
+
+<div class="quiz">
+  <p class="quiz-q">Q: "How do you prevent someone from brute-forcing the OTP?"</p>
+  <div class="info-box success" style="margin-top: 0.5rem;">
+    <strong>Your answer:</strong> "Three layers. First, a 60-second resend cooldown prevents spam. Second, I track failed verification attempts in Redis — after 3 wrong guesses, the number is blocked for 15 minutes. Third, the OTP itself expires after 5 minutes via Redis TTL. Also, the OTP is generated using crypto.randomBytes, not Math.random, so it's cryptographically unpredictable."
+  </div>
+</div>
+
+<div class="quiz">
+  <p class="quiz-q">Q: "Why Redis instead of just keeping the OTP in memory or in MongoDB?"</p>
+  <div class="info-box success" style="margin-top: 0.5rem;">
+    <strong>Your answer:</strong> "Redis has native TTL — the OTP auto-deletes after 5 minutes without any cleanup code. In-memory storage would be lost on server restart and doesn't work with multiple server instances. MongoDB could work but doesn't have built-in TTL on reads — you'd need TTL indexes and they only run every 60 seconds, which is too slow for security-critical data."
+  </div>
+</div>
+
+<div class="quiz">
+  <p class="quiz-q">Q: "Can someone register without verifying their phone?"</p>
+  <div class="info-box success" style="margin-top: 0.5rem;">
+    <strong>Your answer:</strong> "No. When OTP verification succeeds, I set a 'verified:{mobile}' key in Redis with a 10-minute TTL. The registration endpoint checks for this key — if it's missing, it returns 403. The key is deleted after successful registration so it can't be reused."
+  </div>
+</div>
+
+<div class="quiz">
+  <p class="quiz-q">Q: "How did you test this without real SMS?"</p>
+  <div class="info-box success" style="margin-top: 0.5rem;">
+    <strong>Your answer:</strong> "The MSG91 service has a built-in mock mode — when no API key is set, it logs the OTP to console instead of calling the API. For tests, I use ioredis-mock for Redis and mongodb-memory-server for MongoDB. The test suite runs 26 integration tests in about 5 seconds with zero external services."
+  </div>
+</div>
+
+<div class="quiz">
+  <p class="quiz-q">Q: "What would you add for production?"</p>
+  <div class="info-box success" style="margin-top: 0.5rem;">
+    <strong>Your answer:</strong> "Four things: (1) JWT tokens after OTP verification — right now the profile endpoint is unauthenticated. (2) HTTPS via nginx or a cloud load balancer. (3) Per-IP rate limiting to prevent enumeration. (4) Proper CORS configuration — right now it's wildcard. These were intentionally scoped out of the POC."
+  </div>
+</div>
+
+<hr>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<h2 id="quiz">14. Self-Check — Do You Really Know This?</h2>
+
+<p>Try to answer each question <em>before</em> clicking the answer. If you can answer all of these from memory, you're ready.</p>
+
+<div class="quiz" id="q1">
+  <p class="quiz-q">What Node.js function generates the OTP, and why not Math.random()?</p>
+  <ul class="quiz-options">
+    <li onclick="checkAnswer(this, false, 'q1')">Math.random() — it's fast and good enough for 6 digits</li>
+    <li onclick="checkAnswer(this, true, 'q1')">crypto.randomBytes() — it's cryptographically secure and unpredictable</li>
+    <li onclick="checkAnswer(this, false, 'q1')">uuid.v4() — it generates unique identifiers</li>
+    <li onclick="checkAnswer(this, false, 'q1')">Date.now() % 1000000 — it uses the current timestamp</li>
+  </ul>
+  <div class="quiz-explain">crypto.randomBytes() pulls entropy from the OS's secure random source. Math.random() is a PRNG — predictable if you know the seed.</div>
+</div>
+
+<div class="quiz" id="q2">
+  <p class="quiz-q">What does Redis TTL do for OTPs in this project?</p>
+  <ul class="quiz-options">
+    <li onclick="checkAnswer(this, false, 'q2')">Logs the OTP creation time for auditing purposes</li>
+    <li onclick="checkAnswer(this, false, 'q2')">Encrypts the OTP with a time-based key rotation</li>
+    <li onclick="checkAnswer(this, true, 'q2')">Automatically deletes the OTP after 5 minutes — no cleanup code needed</li>
+    <li onclick="checkAnswer(this, false, 'q2')">Sends a notification when the OTP is about to expire</li>
+  </ul>
+  <div class="quiz-explain">TTL = Time To Live. Redis deletes the key automatically when the TTL expires. The OTP simply ceases to exist after 5 minutes.</div>
+</div>
+
+<div class="quiz" id="q3">
+  <p class="quiz-q">Why does the /register endpoint check for a "verified:{mobile}" key in Redis?</p>
+  <ul class="quiz-options">
+    <li onclick="checkAnswer(this, false, 'q3')">To check if the user's email has been confirmed</li>
+    <li onclick="checkAnswer(this, true, 'q3')">To ensure the mobile number was OTP-verified before allowing registration</li>
+    <li onclick="checkAnswer(this, false, 'q3')">To verify the user's identity against a government database</li>
+    <li onclick="checkAnswer(this, false, 'q3')">To check if the user has completed a CAPTCHA challenge</li>
+  </ul>
+  <div class="quiz-explain">Without this gate, anyone could call POST /register directly with any phone number and create a fake account. The verified key proves they received and entered the correct OTP.</div>
+</div>
+
+<div class="quiz" id="q4">
+  <p class="quiz-q">Why does the app use Promise.allSettled instead of Promise.all for SMS + WhatsApp?</p>
+  <ul class="quiz-options">
+    <li onclick="checkAnswer(this, false, 'q4')">Promise.allSettled is newer and therefore faster</li>
+    <li onclick="checkAnswer(this, false, 'q4')">Promise.all doesn't support multiple async functions</li>
+    <li onclick="checkAnswer(this, false, 'q4')">Promise.allSettled retries failed requests automatically</li>
+    <li onclick="checkAnswer(this, true, 'q4')">Promise.all fails everything if one fails — allSettled lets SMS succeed even if WhatsApp fails</li>
+  </ul>
+  <div class="quiz-explain">If WhatsApp delivery fails but SMS succeeds, the OTP was still delivered. Promise.all would reject both results if either threw an error. allSettled gives you the result of each independently.</div>
+</div>
+
+<div class="quiz" id="q5">
+  <p class="quiz-q">What is the approximate cost per OTP (both channels) with MSG91 for Indian numbers?</p>
+  <ul class="quiz-options">
+    <li onclick="checkAnswer(this, false, 'q5')">₹2.00–3.00 per OTP for both channels combined</li>
+    <li onclick="checkAnswer(this, true, 'q5')">₹0.27–0.32 per OTP for both channels combined</li>
+    <li onclick="checkAnswer(this, false, 'q5')">₹1.00–1.50 per OTP for both channels combined</li>
+    <li onclick="checkAnswer(this, false, 'q5')">₹0.05–0.10 per OTP for both channels combined</li>
+  </ul>
+  <div class="quiz-explain">SMS costs ₹0.15–0.20 and WhatsApp costs ₹0.12 (Meta's pass-through rate). Total: ₹0.27–0.32 per OTP for both channels.</div>
+</div>
+
+<hr>
+
+<hr>
+
+<div class="lesson-footer">
+  <p>
+    <strong>Lesson 1 of 1</strong> — The Complete Mobile Auth POC<br>
+    Reference: <a href="../reference/0001-project-glossary.html">Project Glossary</a> · <a href="../PROVIDER_DECISION.md">Provider Decision</a> · <a href="../README.md">README</a><br><br>
+    <em>💬 Have questions? Ask your teacher (me!) anything that's unclear. The goal is for you to explain this confidently, not just read it once.</em>
+  </p>
+</div>
+
+<script>
+function checkAnswer(el, correct, quizId) {
+  const quiz = document.getElementById(quizId);
+  const options = quiz.querySelectorAll('.quiz-options li');
+  const explain = quiz.querySelector('.quiz-explain');
+
+  // Prevent re-clicking
+  if (quiz.dataset.answered) return;
+  quiz.dataset.answered = 'true';
+
+  options.forEach(li => {
+    li.style.cursor = 'default';
+  });
+
+  if (correct) {
+    el.classList.add('correct');
+  } else {
+    el.classList.add('wrong');
+    // Highlight the correct one
+    options.forEach(li => {
+      if (li.getAttribute('onclick')?.includes('true')) {
+        li.classList.add('correct');
+      }
+    });
+  }
+
+  explain.style.display = 'block';
+}
+</script>
+
+</body>
+</html>

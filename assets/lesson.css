@@ -1,0 +1,267 @@
+/* ─── Shared lesson stylesheet ─────────────────────────────────────────────── */
+/* Links to: every lesson in the workspace                                     */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=DM+Serif+Display&display=swap');
+
+:root {
+  --bg: #0f1117;
+  --surface: #181c25;
+  --surface-2: #1e2330;
+  --border: #2a3040;
+  --accent: #4f6ef7;
+  --accent-hi: #7b93ff;
+  --success: #22c55e;
+  --error: #ef4444;
+  --warn: #f59e0b;
+  --text: #e8ecf4;
+  --muted: #6b7588;
+  --label: #9aa3b5;
+  --code-bg: #12151d;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: 17px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  padding: 2rem;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+/* ─── Typography ───────────────────────────────────────────────────────────── */
+h1 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 2.2rem;
+  font-weight: 400;
+  line-height: 1.2;
+  margin-bottom: 0.3rem;
+  color: var(--text);
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+}
+
+h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+  color: var(--accent-hi);
+}
+
+p { margin-bottom: 1rem; }
+
+a { color: var(--accent-hi); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+strong { color: #fff; font-weight: 600; }
+em { color: var(--label); }
+
+blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.75rem 1.25rem;
+  margin: 1.25rem 0;
+  background: var(--surface);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  color: var(--label);
+  font-size: 0.93rem;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0;
+}
+
+/* ─── Lists ────────────────────────────────────────────────────────────────── */
+ul, ol {
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+li { margin-bottom: 0.4rem; }
+
+/* ─── Code ─────────────────────────────────────────────────────────────────── */
+code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  background: var(--code-bg);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  color: var(--accent-hi);
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  overflow-x: auto;
+  margin: 1rem 0 1.5rem;
+  line-height: 1.5;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+/* ─── Tables ───────────────────────────────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0 1.5rem;
+  font-size: 0.9rem;
+}
+th {
+  background: var(--surface-2);
+  font-weight: 600;
+  text-align: left;
+  padding: 0.65rem 1rem;
+  border-bottom: 2px solid var(--border);
+  color: var(--label);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+td {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+tr:hover { background: var(--surface); }
+
+/* ─── Info boxes ───────────────────────────────────────────────────────────── */
+.info-box {
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius);
+  margin: 1.25rem 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.info-box.tip     { background: rgba(79,110,247,0.1); border: 1px solid rgba(79,110,247,0.25); }
+.info-box.success { background: rgba(34,197,94,0.1);  border: 1px solid rgba(34,197,94,0.25); }
+.info-box.warn    { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.25); color: var(--warn); }
+.info-box.danger  { background: rgba(239,68,68,0.1);  border: 1px solid rgba(239,68,68,0.25); color: #fca5a5; }
+
+.info-box strong { color: inherit; }
+
+/* ─── Flow diagram ─────────────────────────────────────────────────────────── */
+.flow-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: 1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.flow-num {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.flow-content { flex: 1; }
+.flow-content strong { display: block; margin-bottom: 0.25rem; }
+
+/* ─── Quiz widget ──────────────────────────────────────────────────────────── */
+.quiz {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+}
+.quiz-q {
+  font-weight: 600;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+.quiz-options { list-style: none; padding: 0; }
+.quiz-options li {
+  padding: 0.6rem 1rem;
+  margin: 0.4rem 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 150ms;
+  font-size: 0.9rem;
+}
+.quiz-options li:hover { border-color: var(--accent); }
+.quiz-options li.correct {
+  background: rgba(34,197,94,0.15);
+  border-color: var(--success);
+  color: #86efac;
+}
+.quiz-options li.wrong {
+  background: rgba(239,68,68,0.15);
+  border-color: var(--error);
+  color: #fca5a5;
+}
+.quiz-explain {
+  display: none;
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface-2);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--label);
+  line-height: 1.5;
+}
+
+/* ─── Subtitle / meta ──────────────────────────────────────────────────────── */
+.subtitle {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 2rem;
+}
+.tag {
+  display: inline-block;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.6rem;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--label);
+  margin-right: 0.4rem;
+}
+
+/* ─── Footer ───────────────────────────────────────────────────────────────── */
+.lesson-footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ─── Print ────────────────────────────────────────────────────────────────── */
+@media print {
+  body { background: #fff; color: #222; max-width: 100%; }
+  .quiz-options li { border: 1px solid #ccc; }
+  pre { border: 1px solid #ddd; }
+  .info-box { border: 1px solid #ccc; }
+}
