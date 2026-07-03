@@ -434,53 +434,6 @@ if (require.main === module) {
 <hr>
 
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<h2 id="boss-questions">13. Questions Your Boss Will Probably Ask</h2>
-
-<div class="quiz">
-  <p class="quiz-q">Q: "Why did you choose MSG91 over other providers?"</p>
-  <div class="info-box success" style="margin-top: 0.5rem;">
-    <strong>Your answer:</strong> "I compared 7 providers. MSG91 is the cheapest for India at ₹0.27–0.32 per OTP for both SMS and WhatsApp combined. It's 60–70% cheaper than Twilio. It passes through Meta's WhatsApp rate with zero markup. And it has direct carrier relationships with Indian telcos for fast delivery. The full comparison is in PROVIDER_DECISION.md."
-  </div>
-</div>
-
-<div class="quiz">
-  <p class="quiz-q">Q: "How do you prevent someone from brute-forcing the OTP?"</p>
-  <div class="info-box success" style="margin-top: 0.5rem;">
-    <strong>Your answer:</strong> "Three layers. First, a 60-second resend cooldown prevents spam. Second, I track failed verification attempts in Redis — after 3 wrong guesses, the number is blocked for 15 minutes. Third, the OTP itself expires after 5 minutes via Redis TTL. Also, the OTP is generated using crypto.randomBytes, not Math.random, so it's cryptographically unpredictable."
-  </div>
-</div>
-
-<div class="quiz">
-  <p class="quiz-q">Q: "Why Redis instead of just keeping the OTP in memory or in MongoDB?"</p>
-  <div class="info-box success" style="margin-top: 0.5rem;">
-    <strong>Your answer:</strong> "Redis has native TTL — the OTP auto-deletes after 5 minutes without any cleanup code. In-memory storage would be lost on server restart and doesn't work with multiple server instances. MongoDB could work but doesn't have built-in TTL on reads — you'd need TTL indexes and they only run every 60 seconds, which is too slow for security-critical data."
-  </div>
-</div>
-
-<div class="quiz">
-  <p class="quiz-q">Q: "Can someone register without verifying their phone?"</p>
-  <div class="info-box success" style="margin-top: 0.5rem;">
-    <strong>Your answer:</strong> "No. When OTP verification succeeds, I set a 'verified:{mobile}' key in Redis with a 10-minute TTL. The registration endpoint checks for this key — if it's missing, it returns 403. The key is deleted after successful registration so it can't be reused."
-  </div>
-</div>
-
-<div class="quiz">
-  <p class="quiz-q">Q: "How did you test this without real SMS?"</p>
-  <div class="info-box success" style="margin-top: 0.5rem;">
-    <strong>Your answer:</strong> "The MSG91 service has a built-in mock mode — when no API key is set, it logs the OTP to console instead of calling the API. For tests, I use ioredis-mock for Redis and mongodb-memory-server for MongoDB. The test suite runs 26 integration tests in about 5 seconds with zero external services."
-  </div>
-</div>
-
-<div class="quiz">
-  <p class="quiz-q">Q: "What would you add for production?"</p>
-  <div class="info-box success" style="margin-top: 0.5rem;">
-    <strong>Your answer:</strong> "Four things: (1) JWT tokens after OTP verification — right now the profile endpoint is unauthenticated. (2) HTTPS via nginx or a cloud load balancer. (3) Per-IP rate limiting to prevent enumeration. (4) Proper CORS configuration — right now it's wildcard. These were intentionally scoped out of the POC."
-  </div>
-</div>
-
-<hr>
-
-<!-- ════════════════════════════════════════════════════════════════════════ -->
 <h2 id="quiz">14. Self-Check — Do You Really Know This?</h2>
 
 <p>Try to answer each question <em>before</em> clicking the answer. If you can answer all of these from memory, you're ready.</p>
